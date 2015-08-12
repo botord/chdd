@@ -7,16 +7,16 @@
 
 #include <linux/init.h>
 #include <linux/slab.h>
-//#include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/module.h>
-//#include <linux/sched.h>
 #include <linux/cdev.h>
 #include <linux/errno.h>
-//#include <linux/mm.h>
+#include <asm/uaccess.h>
+//#include <linux/types.h>
+//#include <linux/sched.h>
+#include <linux/mm.h>
 //#include <asm/io.h>
 //#include <asm/system.h>
-#include <asm/uaccess.h>
 
 
 #define MEM_SIZE 0x1000 /*4KB*/
@@ -32,9 +32,10 @@ struct chdd {
 /*device structure pointer*/
 struct chdd *chddp;
 
-int chdd_release(void)
+int chdd_release(struct inode *inode, struct file *filp)
 {
-
+    struct chddp *chddp = filp->private_data;
+    kfree(chddp);
     return 0;
 }
 
@@ -43,16 +44,12 @@ int chdd_open(struct inode *inode, struct file *filp)
     filp->private_data = chddp;
     return 0;
 }
-int chdd_close(void)
-{
-    return 0;
-}
 
-int chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
+ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
 {
     unsigned long p = *ppos;
     unsigned int count = size;
-    int ret = 0;
+    ssize_t ret = 0;
     struct chdd *dev = filp->private_data;
     /*we let this parameter points to chdd structure when we do chdd_open*/
 
@@ -60,11 +57,12 @@ int chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
     if (p > MEM_SIZE) {
         return 0;
     }
+
     if (count > MEM_SIZE - size) {
         count = MEM_SIZE - size;
     }
 
-    if (copy_to_user(buf, dev->mem + p), count) {
+    if (copy_to_user(buf, dev->mem + p, count)) {
         ret = -EFAULT;
     } else {
         *ppos += count;
@@ -73,24 +71,30 @@ int chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
     }
     return ret;
 }
-
-int chdd_write(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
+ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_t *ppos)
 {
     unsigned long p = *ppos;
     unsigned int count = size;
-    int ret = 0;
+    ssize_t ret = 0;
 
     struct chdd *dev = filp->private_data;
 
     if (p > MEM_SIZE) {
-        return 0;
+        return ret;
     }
     if (count > MEM_SIZE - p) {
         count = MEM_SIZE - p;
     }
 
+    if (copy_from_user(dev->mem + p, buf, count)) {
+        ret = count;
+        printk(KERN_INFO "write %u bytes(s) from %lu", count, p);
+    }
+
+    return ret;
 }
 
+/*
 int chdd_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
               unsigned long arg)
 {
@@ -107,18 +111,18 @@ int chdd_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
     }
     return 0; 
 }
-
-int chdd_llseek(void)
+*/
+loff_t chdd_llseek(struct chdd *dev, loff_t *ppos, int whence)
 {
-    return 0;
+    loff_t ret = 0;
+    return ret;
 }
 static const struct file_operations chdd_fops = {
     .owner = THIS_MODULE,
     .read = chdd_read,
     .write = chdd_write,
-    .ioctl = chdd_ioctl,
+//    .ioctl = chdd_ioctl,
     .open = chdd_open,
-    .close = chdd_close,
     .release = chdd_release,
     .llseek = chdd_llseek,
 };
