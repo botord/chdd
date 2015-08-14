@@ -1,7 +1,7 @@
 /*************************************************************************
 	> File Name: chdd.c
 	> Author: Dong Hao
-	> Mail: 
+	> Mail: haodong.donh@gmail.com
 	> Created Time: 2015年08月12日 星期三 16时53分25秒
  ************************************************************************/
 
@@ -41,7 +41,12 @@ int chdd_release(struct inode *inode, struct file *filp)
 
 int chdd_open(struct inode *inode, struct file *filp)
 {
-    filp->private_data = chddp;
+    /*filp->private_data = dev;*/
+    struct chdd *dev;
+
+    /*container_of returns the pointer of the upper structure */
+    dev = container_of(inode->i_cdev, struct chdd, cdev);
+    filp->private_data = dev;
     return 0;
 }
 
@@ -135,8 +140,9 @@ static void chdd_set_up_cdev(struct chdd *dev, int index)
     dev->cdev.owner = THIS_MODULE;
     err = cdev_add(&dev->cdev, devno, 1);
 
-    if (err) 
+    if (err) {
         printk(KERN_NOTICE "Error %d adding chdd %d", err, index);
+    }
 }
 
 int chdd_init(void)
@@ -146,9 +152,9 @@ int chdd_init(void)
 
     /*apply for the device number*/
     if (chdd_major) {
-        result = register_chrdev_region(devno, 1, "chdd");
+        result = register_chrdev_region(devno, 2, "chdd");
     } else {
-        result = alloc_chrdev_region(&devno, 0, 1, "chdd");
+        result = alloc_chrdev_region(&devno, 0, 2, "chdd");
     }
 
     if (result < 0) {
@@ -156,27 +162,29 @@ int chdd_init(void)
     }
 
     /*apply memory for device struct*/
-    chddp = kmalloc(sizeof(struct chdd), GFP_KERNEL);
+    chddp = kmalloc(2*sizeof(struct chdd), GFP_KERNEL);
     if (!chddp) {
         result = -ENOMEM;
         goto end;
     } 
 
-    memset(chddp, 0, sizeof(sizeof(struct chdd)));
-    chdd_set_up_cdev(chddp, 0);
+    memset(chddp, 0, 2*sizeof(sizeof(struct chdd)));
+    chdd_set_up_cdev(chddp[0], 0);
+    chdd_set_up_cdev(chddp[1], 0);
     return 0;
 
 end:
-    unregister_chrdev_region(devno, 1);
+    unregister_chrdev_region(devno, 2);
     return result;
 }
 
 static void chdd_exit(void)
 {
     printk(KERN_INFO "Goodbye cruel world!");
-    cdev_del(&chddp->cdev);
+    cdev_del(&chddp[0]->cdev);
+    cdev_del(&chddp[1]->cdev);
     kfree(chddp);
-    unregister_chrdev_region(MKDEV(chdd_major, 0), 1);
+    unregister_chrdev_region(MKDEV(chdd_major, 0), 2);
 }
 
 module_init(chdd_init);
