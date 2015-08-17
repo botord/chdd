@@ -129,7 +129,7 @@ static const struct file_operations chdd_fops = {
 //    .ioctl = chdd_ioctl,
     .open = chdd_open,
     .release = chdd_release,
-    .llseek = chdd_llseek,
+//    .llseek = chdd_llseek,
 };
 
 static void chdd_set_up_cdev(struct chdd *dev, int index) 
@@ -142,7 +142,9 @@ static void chdd_set_up_cdev(struct chdd *dev, int index)
 
     if (err) {
         printk(KERN_NOTICE "Error %d adding chdd %d", err, index);
+//        chdd_exit();
     }
+
 }
 
 int chdd_init(void)
@@ -169,8 +171,8 @@ int chdd_init(void)
     } 
 
     memset(chddp, 0, 2*sizeof(sizeof(struct chdd)));
-    chdd_set_up_cdev(chddp[0], 0);
-    chdd_set_up_cdev(chddp[1], 0);
+    chdd_set_up_cdev(&chddp[0], 0);
+    chdd_set_up_cdev(&chddp[1], 2);
     return 0;
 
 end:
@@ -178,11 +180,15 @@ end:
     return result;
 }
 
-static void chdd_exit(void)
+void chdd_exit(void)
 {
     printk(KERN_INFO "Goodbye cruel world!");
-    cdev_del(&chddp[0]->cdev);
-    cdev_del(&chddp[1]->cdev);
+    if (chddp) {
+            cdev_del(&chddp[1].cdev);
+            cdev_del(&chddp[2].cdev);
+            kfree(&chddp[1].cdev);
+            kfree(&chddp[2].cdev);
+    }
     kfree(chddp);
     unregister_chrdev_region(MKDEV(chdd_major, 0), 2);
 }
