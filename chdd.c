@@ -21,10 +21,26 @@
 
 #define MEM_SIZE 0x1000 /*4KB*/
 #define CHDD_MAJOR 250
+#define CHDD_QUANTUM 100
+#define CHDD_QSET 100
 #define MEM_CLEAR 0x01
 
+static int chdd_quantum = CHDD_QUANTUM;
+static int chdd_qset = CHDD_QSET;
 static int chdd_major = CHDD_MAJOR;
+static int chdd_minor = 0;
+
+struct chdd_qset {
+    void **data;
+    struct chdd_qset *next;
+};
+
 struct chdd {
+    struct chdd_qset *data;     /* Pointer to first quantum set */
+    int quantum;                /* the current quantum size */
+    int qset;                   /* the current array size */
+    unsigned long size;         /* amount of data stored here */
+    struct semaphore sem;       /* mutual exclusion semaphore */
     struct cdev cdev;
     unsigned char mem[MEM_SIZE];
 };
@@ -39,6 +55,29 @@ int chdd_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+int chdd_trim(struct chdd *dev) {
+    struct chdd_qset *next, *dptr;
+    int qset = dev->qset;
+    int i;
+
+    for (dptr = dev->data; dptr; dptr = next) {
+        if (dptr->data) {
+            for (i = 0; i < qset; i++) {
+                kfree(dptr->data[i]);
+                dptr->data = NULL;
+            }
+        }
+        next = dptr->next;
+        kfree(dptr);
+    }
+    dev->size = 0;
+    dev->quantum = chdd_quantum; 
+    dev->qset = chdd_qset;
+    dev->data = NULL;
+
+    return 0;
+}
+
 int chdd_open(struct inode *inode, struct file *filp)
 {
     /*filp->private_data = dev;*/
@@ -47,6 +86,11 @@ int chdd_open(struct inode *inode, struct file *filp)
     /*container_of returns the pointer of the upper structure */
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
+
+    /*trim the length of the device if open was write-only */
+    if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
+        chdd_trim(dev);
+    }
     return 0;
 }
 
@@ -132,22 +176,22 @@ static const struct file_operations chdd_fops = {
 //    .llseek = chdd_llseek,
 };
 
-static void chdd_set_up_cdev(struct chdd *dev, int index) 
+static void chdd_setup_cdev(struct chdd *dev, int index) 
 {
-    int err, devno = MKDEV(chdd_major, index);
+    int err, devno = MKDEV(chdd_major, chdd_minor + index);
 
     cdev_init(&dev->cdev, &chdd_fops);
     dev->cdev.owner = THIS_MODULE;
+    dev->cdev.ops = &chdd_fops;
     err = cdev_add(&dev->cdev, devno, 1);
 
     if (err) {
         printk(KERN_NOTICE "Error %d adding chdd %d", err, index);
-//        chdd_exit();
     }
 
 }
 
-int chdd_init(void)
+static int __init chdd_init(void)
 {
     int result;
     dev_t devno = MKDEV(chdd_major, 0);
@@ -171,8 +215,8 @@ int chdd_init(void)
     } 
 
     memset(chddp, 0, 2*sizeof(sizeof(struct chdd)));
-    chdd_set_up_cdev(&chddp[0], 0);
-    chdd_set_up_cdev(&chddp[1], 2);
+    chdd_setup_cdev(&chddp[0], 0);
+    chdd_setup_cdev(&chddp[1], 1);
     return 0;
 
 end:
@@ -180,7 +224,7 @@ end:
     return result;
 }
 
-void chdd_exit(void)
+void __exit chdd_exit(void)
 {
     printk(KERN_INFO "Goodbye cruel world!");
     if (chddp) {
