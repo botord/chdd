@@ -83,7 +83,19 @@ int chdd_open(struct inode *inode, struct file *filp)
     /*filp->private_data = dev;*/
     struct chdd *dev;
 
-    /*container_of returns the pointer of the upper structure */
+    /*container_of returns the pointer of the upper structure 
+    * struct demo_struct { 
+    *   type1 member1; 
+    *   type2 member2; 
+    *   type3 member3; 
+    *   type4 member4; 
+    * };      
+    * 
+    * struct demo_struct *demo_p;
+    * struct type3 *member3_p = get_member_pointer_from_somewhere();
+    * demo_p = container_of(member3_p, struct demo_struct, member3);
+    *
+    * */
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
 
