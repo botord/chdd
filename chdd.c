@@ -21,16 +21,18 @@
 
 #define MEM_SIZE 0x1000 /*4KB*/
 #define CHDD_MAJOR 250
-#define CHDD_QUANTUM 100
-#define CHDD_QSET 100
+#define CHDD_QUANTUM 0x1000 /*4KB*/
+#define CHDD_QUANTUM_SET 1000
 #define MEM_CLEAR 0x01
 
 static int chdd_quantum = CHDD_QUANTUM;
-static int chdd_qset = CHDD_QSET;
+static int chdd_quantum_set = CHDD_QUANTUM_SET;
 static int chdd_major = CHDD_MAJOR;
 static int chdd_minor = 0;
 
+/* Actually stores the data of the device */
 struct chdd_qset {
+    /* each of the **data holds quantum * qset memory */
     void **data;
     struct chdd_qset *next;
 };
@@ -63,16 +65,17 @@ int chdd_trim(struct chdd *dev) {
     for (dptr = dev->data; dptr; dptr = next) {
         if (dptr->data) {
             for (i = 0; i < qset; i++) {
-                kfree(dptr->data[i]);
+                kfree(dptr->data[i]);/*clear one quantum each time */
                 dptr->data = NULL;
             }
+            /* quantum * qset */
         }
         next = dptr->next;
         kfree(dptr);
     }
     dev->size = 0;
     dev->quantum = chdd_quantum; 
-    dev->qset = chdd_qset;
+    dev->qset = chdd_quantum_set;
     dev->data = NULL;
 
     return 0;
@@ -178,7 +181,7 @@ loff_t chdd_llseek(struct chdd *dev, loff_t *ppos, int whence)
     loff_t ret = 0;
     return ret;
 }
-static const struct file_operations chdd_fops = {
+const struct file_operations chdd_fops = {
     .owner = THIS_MODULE,
     .read = chdd_read,
     .write = chdd_write,
@@ -188,7 +191,23 @@ static const struct file_operations chdd_fops = {
 //    .llseek = chdd_llseek,
 };
 
-static void chdd_setup_cdev(struct chdd *dev, int index) 
+static void __exit chdd_exit(void)
+{
+    dev_t devno = MKDEV(chdd_major, 0);
+
+    printk(KERN_INFO "Goodbye cruel world!");
+
+    if (chddp) {
+            cdev_del(&chddp[1].cdev);
+            cdev_del(&chddp[2].cdev);
+            kfree(&chddp[1].cdev);
+            kfree(&chddp[2].cdev);
+    }
+    kfree(chddp);
+    unregister_chrdev_region(devno, 2);
+}
+
+int chdd_setup_cdev(struct chdd *dev, int index) 
 {
     int err, devno = MKDEV(chdd_major, chdd_minor + index);
 
@@ -199,8 +218,10 @@ static void chdd_setup_cdev(struct chdd *dev, int index)
 
     if (err) {
         printk(KERN_NOTICE "Error %d adding chdd %d", err, index);
+        chdd_exit();
     }
 
+    return 0;
 }
 
 static int __init chdd_init(void)
@@ -216,6 +237,7 @@ static int __init chdd_init(void)
     }
 
     if (result < 0) {
+        printk(KERN_WARNING "chdd cannot get major %d", chdd_major);
         return result;
     }
 
@@ -223,30 +245,27 @@ static int __init chdd_init(void)
     chddp = kmalloc(2*sizeof(struct chdd), GFP_KERNEL);
     if (!chddp) {
         result = -ENOMEM;
-        goto end;
+        goto fail;
     } 
 
-    memset(chddp, 0, 2*sizeof(sizeof(struct chdd)));
-    chdd_setup_cdev(&chddp[0], 0);
-    chdd_setup_cdev(&chddp[1], 1);
+    memset(chddp, 0, 2*(sizeof(struct chdd)));
+
+    result = chdd_setup_cdev(&chddp[0], 0);
+    if (!result) {
+        goto fail_2;
+    }
+
+    result = chdd_setup_cdev(&chddp[1], 1);
+    if (!result ) {
+        goto fail_1;
+    }
     return 0;
 
-end:
+fail:
+fail_1:
     unregister_chrdev_region(devno, 2);
+fail_2:
     return result;
-}
-
-void __exit chdd_exit(void)
-{
-    printk(KERN_INFO "Goodbye cruel world!");
-    if (chddp) {
-            cdev_del(&chddp[1].cdev);
-            cdev_del(&chddp[2].cdev);
-            kfree(&chddp[1].cdev);
-            kfree(&chddp[2].cdev);
-    }
-    kfree(chddp);
-    unregister_chrdev_region(MKDEV(chdd_major, 0), 2);
 }
 
 module_init(chdd_init);
