@@ -41,7 +41,7 @@ struct chdd {
     struct chdd_qset *data;     /* Pointer to first quantum set */
     int quantum;                /* the current quantum size */
     int qset;                   /* the current array size */
-    unsigned long size;         /* amount of data stored here */
+    unsigned long long size;    /* amount of data stored here */
     struct semaphore sem;       /* mutual exclusion semaphore */
     struct cdev cdev;
     unsigned char mem[MEM_SIZE];
@@ -109,6 +109,25 @@ int chdd_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
+/* follow the list up to the right position */
+struct chdd_qset *chdd_follow(struct chdd *dev, int item) {
+    struct chdd_qset *dptr;
+    int i;
+    dptr = dev->data;
+    for (i = 1; i <= item; i++) {
+        if (!dptr) {
+            goto out;
+        }
+        dptr = dptr -> next;
+    }
+    if (!dptr)
+        goto out;
+
+out:
+    return dptr;
+
+}
+
 ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
 {
     unsigned long p = *ppos;
@@ -117,22 +136,41 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     struct chdd *dev = filp->private_data;
     /*we let this parameter points to chdd structure when we do chdd_open*/
 
-    /**/
-    if (p > MEM_SIZE) {
-        return 0;
+    struct chdd_qset *dptr; /*the first linklist item*/
+    long long itmesize = dev->quantum * dev->qset; /* bytes in this linklist */
+    int item, s_pos, q_pos, rest;
+
+    if (p >= dev->size) {
+        goto out;
     }
 
-    if (count > MEM_SIZE - size) {
-        count = MEM_SIZE - size;
+    if (p + count > dev->size) {
+        count = dev->size - p;
     }
+
+    item = p / itmesize;    /* how many items(qsets) we can jump. */
+    rest = p % itmesize;    /* offset in the last item(qset). */
+    s_pos = rest / dev->quantum; /* how many quantums we can jump. */
+    q_pos = rest % dev->quantum; /* offset in the last quantum. */
+
+    dptr = chdd_follow(dev, item);
+
+    if (dptr == NULL || !dptr->data || !dptr->data[s_pos])
+        goto out;
+
+    /* read only up to the end of this quantum */
+    if (count > dev->quantum - q_pos)
+        count = dev->quantum - q_pos;
 
     if (copy_to_user(buf, dev->mem + p, count)) {
         ret = -EFAULT;
+        goto out;
     } else {
         *ppos += count;
         ret = count;
         printk(KERN_INFO "read %u bytes(s) from %lu", count, p);
     }
+out:
     return ret;
 }
 ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_t *ppos)
@@ -262,9 +300,12 @@ static int __init chdd_init(void)
     return 0;
 
 fail:
+    return result;
 fail_1:
-    unregister_chrdev_region(devno, 2);
+    unregister_chrdev_region(devno, 1);
+    return result;
 fail_2:
+    unregister_chrdev_region(devno, 2);
     return result;
 }
 
