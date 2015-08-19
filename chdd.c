@@ -12,10 +12,11 @@
 #include <linux/cdev.h>
 #include <linux/errno.h>
 #include <asm/uaccess.h>
-//#include <linux/types.h>
-//#include <linux/sched.h>
+#include <linux/types.h>
+#include <linux/sched.h>
 #include <linux/mm.h>
-//#include <asm/io.h>
+#include <asm/io.h>
+#include <linux/math64.h>
 //#include <asm/system.h>
 
 
@@ -137,7 +138,7 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     struct chdd_qset *dptr; /*the first linklist item*/
     int quantum = dev->quantum;
     int qset = dev->qset;
-    long long itemsize = quantum * qset; /* bytes in this linklist */
+    int itemsize = quantum * qset; /* bytes in this linklist */
     int item, s_pos, q_pos, rest;
 
     if (p >= dev->size) {
@@ -148,10 +149,10 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
         count = dev->size - p;
     }
 
-    item = p / itemsize;    /* how many items(qsets) we can jump. */
-    rest = p % itemsize;    /* offset in the last item(qset). */
-    s_pos = rest / quantum; /* how many quantums we can jump. */
-    q_pos = rest % quantum; /* offset in the last quantum. */
+    item = (long)*ppos / itemsize;    // how many items(qsets) we can jump. 
+    rest = (long)*ppos % itemsize;    // offset in the last item(qset). 
+    s_pos = rest / quantum; // how many quantums we can jump. 
+    q_pos = rest % quantum; // offset in the last quantum. 
 
     dptr = chdd_follow(dev, item);
 
@@ -179,9 +180,9 @@ ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_
     struct chdd *dev = filp->private_data;
     struct chdd_qset *dptr;
     int quantum = dev->quantum, qset = dev->qset;
-    long long itemsize = quantum * qset;
-    unsigned long p = *ppos;
-    unsigned int count = size;
+    int itemsize = quantum * qset;
+    loff_t p = *ppos;
+    size_t count = size;
     ssize_t ret = -ENOMEM;
     
     int item, s_pos, q_pos, rest;
@@ -190,8 +191,8 @@ ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_
         goto out;
     }
 
-    item = p / itemsize;
-    rest = p % itemsize;
+    item = (long)p / itemsize;
+    rest = (long)p % itemsize;
     s_pos = rest / quantum;
     q_pos = rest % quantum;
 
