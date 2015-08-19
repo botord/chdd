@@ -1,6 +1,6 @@
 KVERS = $(shell uname -r)
-obj-m += hello.o
-hello-objs := chdd.o 
+obj-m += test.o
+test-objs := chdd.o
 
 build: kernel_modules
 

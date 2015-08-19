@@ -168,7 +168,7 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     } else {
         *ppos += count;
         ret = count;
-        printk(KERN_INFO "read %u bytes(s) from %lu", count, p);
+        printk(KERN_ALERT "read %u bytes(s) from %lu", count, p);
     }
 out:
     return ret;
@@ -245,7 +245,7 @@ int chdd_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
     switch (cmd) {
         case MEM_CLEAR:
             memset(dev->mem, 0, MEM_SIZE);
-            printk(KERN_INFO "chdd memory is set to zero");
+            printk(KERN_ALERT "chdd memory is set to zero");
             break;
 
         default:
@@ -273,7 +273,7 @@ static void __exit chdd_exit(void)
 {
     dev_t devno = MKDEV(chdd_major, 0);
 
-    printk(KERN_INFO "Goodbye cruel world!");
+    printk(KERN_ALERT "Goodbye cruel world!");
 
     if (chddp) {
             cdev_del(&chddp[1].cdev);
