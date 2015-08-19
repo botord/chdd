@@ -120,8 +120,6 @@ struct chdd_qset *chdd_follow(struct chdd *dev, int item) {
         }
         dptr = dptr -> next;
     }
-    if (!dptr)
-        goto out;
 
 out:
     return dptr;
@@ -137,7 +135,9 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     /*we let this parameter points to chdd structure when we do chdd_open*/
 
     struct chdd_qset *dptr; /*the first linklist item*/
-    long long itmesize = dev->quantum * dev->qset; /* bytes in this linklist */
+    int quantum = dev->quantum;
+    int qset = dev->qset;
+    long long itemsize = quantum * qset; /* bytes in this linklist */
     int item, s_pos, q_pos, rest;
 
     if (p >= dev->size) {
@@ -148,10 +148,10 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
         count = dev->size - p;
     }
 
-    item = p / itmesize;    /* how many items(qsets) we can jump. */
-    rest = p % itmesize;    /* offset in the last item(qset). */
-    s_pos = rest / dev->quantum; /* how many quantums we can jump. */
-    q_pos = rest % dev->quantum; /* offset in the last quantum. */
+    item = p / itemsize;    /* how many items(qsets) we can jump. */
+    rest = p % itemsize;    /* offset in the last item(qset). */
+    s_pos = rest / quantum; /* how many quantums we can jump. */
+    q_pos = rest % quantum; /* offset in the last quantum. */
 
     dptr = chdd_follow(dev, item);
 
@@ -159,8 +159,8 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
         goto out;
 
     /* read only up to the end of this quantum */
-    if (count > dev->quantum - q_pos)
-        count = dev->quantum - q_pos;
+    if (count > quantum - q_pos)
+        count = quantum - q_pos;
 
     if (copy_to_user(buf, dev->mem + p, count)) {
         ret = -EFAULT;
@@ -173,26 +173,66 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
 out:
     return ret;
 }
+
 ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_t *ppos)
 {
+    struct chdd *dev = filp->private_data;
+    struct chdd_qset *dptr;
+    int quantum = dev->quantum, qset = dev->qset;
+    long long itemsize = quantum * qset;
     unsigned long p = *ppos;
     unsigned int count = size;
-    ssize_t ret = 0;
+    ssize_t ret = -ENOMEM;
+    
+    int item, s_pos, q_pos, rest;
 
-    struct chdd *dev = filp->private_data;
-
-    if (p > MEM_SIZE) {
-        return ret;
-    }
-    if (count > MEM_SIZE - p) {
-        count = MEM_SIZE - p;
+    if (p > dev->size) {
+        goto out;
     }
 
-    if (copy_from_user(dev->mem + p, buf, count)) {
-        ret = count;
-        printk(KERN_INFO "write %u bytes(s) from %lu", count, p);
+    item = p / itemsize;
+    rest = p % itemsize;
+    s_pos = rest / quantum;
+    q_pos = rest % quantum;
+
+    dptr = chdd_follow(dev, item);
+
+    if (!dptr)
+        goto out;
+    
+    if (!dptr->data) {
+        dptr->data = kmalloc(qset * sizeof(char *), GFP_KERNEL);
+        if (!dptr->data)
+            goto out;
+
+        memset(dptr->data, 0, qset * sizeof(char *));
+    }
+    
+    if (!dptr->data[s_pos]) {
+        dptr->data[s_pos] = kmalloc(quantum, GFP_KERNEL);
+        if (!dptr->data[s_pos])
+            goto out;
+
+        memset(dptr->data[s_pos], 0, quantum);
     }
 
+    /* write only up to the end of this quantum */
+    if (count > quantum - q_pos) {
+        count = quantum - q_pos;
+    }
+
+    if (copy_from_user(dptr->data[s_pos]+q_pos, buf, count)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    
+    *ppos += count;
+    ret = count;
+
+    if (dev->size < *ppos)
+        dev->size = *ppos;
+
+out:
     return ret;
 }
 
