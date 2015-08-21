@@ -270,7 +270,7 @@ const struct file_operations chdd_fops = {
 //    .llseek = chdd_llseek,
 };
 
-static void __exit chdd_exit(void)
+static void chdd_exit(void)
 {
     dev_t devno = MKDEV(chdd_major, 0);
 
@@ -303,7 +303,7 @@ int chdd_setup_cdev(struct chdd *dev, int index)
     return 0;
 }
 
-static int __init chdd_init(void)
+static int chdd_init(void)
 {
     int result;
     dev_t devno = MKDEV(chdd_major, 0);
