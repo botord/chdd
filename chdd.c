@@ -5,7 +5,7 @@
 	> Created Time: 2015年08月12日 星期三 16时53分25秒
  ************************************************************************/
 
-#include <linux/init.h>
+//#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/module.h>
@@ -18,6 +18,8 @@
 #include <asm/io.h>
 #include <linux/math64.h>
 //#include <asm/system.h>
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_AUTHOR("Dong Hao");
 
 
 #define MEM_SIZE 0x1000 /*4KB*/
@@ -274,21 +276,19 @@ static void chdd_exit(void)
 {
     dev_t devno = MKDEV(chdd_major, 0);
 
-    printk(KERN_ALERT "Goodbye cruel world!");
+    printk(KERN_INFO "Goodbye cruel world!\n");
 
     if (chddp) {
-            cdev_del(&chddp[1].cdev);
-            cdev_del(&chddp[2].cdev);
-            kfree(&chddp[1].cdev);
-            kfree(&chddp[2].cdev);
+            cdev_del(&chddp->cdev);
+            kfree(&chddp->cdev);
     }
     kfree(chddp);
-    unregister_chrdev_region(devno, 2);
+    unregister_chrdev_region(devno, 1);
 }
 
-int chdd_setup_cdev(struct chdd *dev, int index) 
+static void chdd_setup_cdev(struct chdd *dev, int index) 
 {
-    int err, devno = MKDEV(chdd_major, chdd_minor + index);
+    int err, devno = MKDEV(chdd_major, index);
 
     cdev_init(&dev->cdev, &chdd_fops);
     dev->cdev.owner = THIS_MODULE;
@@ -296,11 +296,10 @@ int chdd_setup_cdev(struct chdd *dev, int index)
     err = cdev_add(&dev->cdev, devno, 1);
 
     if (err) {
-        printk(KERN_NOTICE "Error %d adding chdd %d", err, index);
+        printk(KERN_ALERT "Error %d adding chdd %d\n", err, index);
+        printk(KERN_ALERT "Failed in setup_cdev!\n");
         chdd_exit();
     }
-
-    return 0;
 }
 
 static int chdd_init(void)
@@ -310,43 +309,34 @@ static int chdd_init(void)
 
     /*apply for the device number*/
     if (chdd_major) {
-        result = register_chrdev_region(devno, 2, "chdd");
+        result = register_chrdev_region(devno, 1, "chdd");
     } else {
-        result = alloc_chrdev_region(&devno, 0, 2, "chdd");
+        result = alloc_chrdev_region(&devno, 0, 1, "chdd");
+        chdd_major = MKDEV(devno, 0);
     }
 
     if (result < 0) {
-        printk(KERN_WARNING "chdd cannot get major %d", chdd_major);
+        printk(KERN_ALERT "chdd cannot get major %d\n", chdd_major);
         return result;
     }
+    printk(KERN_ALERT "chdd get major %d\n", chdd_major);
 
     /*apply memory for device struct*/
-    chddp = kmalloc(2*sizeof(struct chdd), GFP_KERNEL);
+    chddp = kmalloc(sizeof(struct chdd), GFP_KERNEL);
     if (!chddp) {
         result = -ENOMEM;
         goto fail;
     } 
 
-    memset(chddp, 0, 2*(sizeof(struct chdd)));
+    memset(chddp, 0, sizeof(struct chdd));
 
-    result = chdd_setup_cdev(&chddp[0], 0);
-    if (!result) {
-        goto fail_2;
-    }
-
-    result = chdd_setup_cdev(&chddp[1], 1);
-    if (!result ) {
-        goto fail_1;
-    }
+    chdd_setup_cdev(chddp, 0);
+    
+    printk(KERN_ALERT "Hello, world!\n");
     return 0;
 
 fail:
-    return result;
-fail_1:
     unregister_chrdev_region(devno, 1);
-    return result;
-fail_2:
-    unregister_chrdev_region(devno, 2);
     return result;
 }
 
