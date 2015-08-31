@@ -5,8 +5,8 @@
 	> Created Time: 2015年08月12日 星期三 16时53分25秒
  ************************************************************************/
 
-//#include <linux/init.h>
-//#include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/cdev.h>
@@ -18,6 +18,7 @@
 #include <asm/io.h>
 #include <linux/math64.h>
 //#include <asm/system.h>
+#include "chdd.h"
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Dong Hao");
 
@@ -277,6 +278,7 @@ const struct file_operations chdd_fops = {
 static void chdd_exit(void)
 {
     dev_t devno = MKDEV(chdd_major, 0);
+    int i = 0;
 
     printk(KERN_INFO "Goodbye cruel world!\n");
 
