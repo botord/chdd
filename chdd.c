@@ -49,6 +49,9 @@ struct chdd {
     int qset;                   /* the current array size */
     unsigned long long size;    /* amount of data stored here */
     struct semaphore sem;       /* mutual exclusion semaphore */
+    struct timer_list timer;
+    unsigned int nreaders;
+    unsigned int nwriters;
     struct cdev cdev;
     unsigned char mem[MEM_SIZE];
 };
@@ -58,8 +61,23 @@ struct chdd *chddp;
 
 int chdd_release(struct inode *inode, struct file *filp)
 {
-    struct chddp *chddp = filp->private_data;
-    kfree(chddp);
+    struct chdd *dev= filp->private_data;
+    down(&dev->sem);
+
+    if (filp->f_mode & FMODE_READ) {
+        dev->nreaders--;
+        PDEBUG("Device %d nreaders: %d.\n", DEV_NTH(dev), dev->nreaders);
+    }
+
+    if (filp->f_mode & FMODE_WRITE) {
+        if (dev->nwriters > 0) {
+            dev->nreaders--;
+            PDEBUG("Device %d nwriters: %d.\n", DEV_NTH(dev), dev->nwriters);
+        }
+    }
+
+    up(&dev->sem);
+    kfree(dev);
     return 0;
 }
 
@@ -112,6 +130,24 @@ int chdd_open(struct inode *inode, struct file *filp)
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
         chdd_trim(dev);
     }
+    del_timer(&dev->timer);
+
+    if (filp->f_mode & FMODE_READ) {
+        dev->nreaders++;
+        PDEBUG("Device %d nreaders: %d.\n", DEV_NTH(dev), dev->nreaders);
+    }
+
+    if (filp->f_mode & FMODE_WRITE) {
+        if (dev->nwriters > 0) {
+            up(&dev->sem);
+            PDEBUG("Device %d busy writing.\n", DEV_NTH(dev));
+            return -EBUSY;
+        } else {
+        dev->nwriters++;
+        PDEBUG("Device %d nwriters: %d.\n", DEV_NTH(dev), dev->nwriters);
+        }
+    }
+    up(&dev->sem);
     return 0;
 }
 
@@ -296,23 +332,24 @@ static void chdd_exit(void)
 
 static void chdd_setup_cdev(struct chdd *dev, int index) 
 {
-    int err, devno = MKDEV(chdd_major, index);
+    int err, devno = MKDEV(chdd_major, chdd_minor + index);
 
     cdev_init(&dev->cdev, &chdd_fops);
     dev->cdev.owner = THIS_MODULE;
-    dev->cdev.ops = &chdd_fops;
+    dev->cdev.ops = &chdd_fops;// I don't know whether I need it or not.
     err = cdev_add(&dev->cdev, devno, 1);
 
     if (err) {
         printk(KERN_ALERT "Error %d adding chdd %d\n", err, index);
         printk(KERN_ALERT "Failed in setup_cdev!\n");
-        chdd_exit();
+ //       chdd_exit();
     }
 }
 
 static int chdd_init(void)
 {
     int result;
+    int i;
     dev_t devno = MKDEV(chdd_major, 0);
 
     /*apply for the device number*/
@@ -338,9 +375,12 @@ static int chdd_init(void)
         goto fail;
     } 
 
-    memset(chddp, 0, sizeof(struct chdd));
+    memset(chddp, 0, chdd_nr_devs * sizeof(struct chdd));
 
-    chdd_setup_cdev(chddp, 0);
+    for(i = 0; i < chdd_nr_devs; i++) {
+        chdd_setup_cdev(&chddp[i], i);
+        PDEBUG("Initialized device %d, size: %d.", i+1, chddp[i].size);
+    }
     
     printk(KERN_ALERT "Hello, world!\n");
     return 0;
