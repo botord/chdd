@@ -6,7 +6,7 @@
  ************************************************************************/
 
 //#include <linux/init.h>
-#include <linux/slab.h>
+//#include <linux/slab.h>
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/cdev.h>
@@ -27,11 +27,13 @@ MODULE_AUTHOR("Dong Hao");
 #define CHDD_QUANTUM 0x1000 /*4KB*/
 #define CHDD_QUANTUM_SET 1000
 #define MEM_CLEAR 0x01
+#define CHDD_NR_DEVS 3
 
 static int chdd_quantum = CHDD_QUANTUM;
 static int chdd_quantum_set = CHDD_QUANTUM_SET;
 static int chdd_major = CHDD_MAJOR;
 static int chdd_minor = 0;
+static int chdd_nr_devs = CHDD_NR_DEVS;
 
 /* Actually stores the data of the device */
 struct chdd_qset {
@@ -279,11 +281,15 @@ static void chdd_exit(void)
     printk(KERN_INFO "Goodbye cruel world!\n");
 
     if (chddp) {
-            cdev_del(&chddp->cdev);
-            kfree(&chddp->cdev);
+        for(i = 0; i<chdd_nr_devs; i++) {
+            cdev_del(&chddp[i].cdev);
+            PDEBUG("delete device %d", i+1);
+            kfree(chddp[i].data);
+        }
+        
+        kfree(chddp);
     }
-    kfree(chddp);
-    unregister_chrdev_region(devno, 1);
+    unregister_chrdev_region(devno, chdd_nr_devs);
 }
 
 static void chdd_setup_cdev(struct chdd *dev, int index) 
@@ -309,21 +315,23 @@ static int chdd_init(void)
 
     /*apply for the device number*/
     if (chdd_major) {
-        result = register_chrdev_region(devno, 1, "chdd");
+        result = register_chrdev_region(devno, chdd_nr_devs, "chdd");
     } else {
-        result = alloc_chrdev_region(&devno, 0, 1, "chdd");
+        result = alloc_chrdev_region(&devno, chdd_minor, chdd_nr_devs, "chdd");
         chdd_major = MKDEV(devno, 0);
     }
 
     if (result < 0) {
-        printk(KERN_ALERT "chdd cannot get major %d\n", chdd_major);
+        printk(KERN_ALERT "chdd cannot get major %d\n, minor count %d"
+                            , chdd_major, chdd_nr_devs);
         return result;
     }
     printk(KERN_ALERT "chdd get major %d\n", chdd_major);
 
     /*apply memory for device struct*/
-    chddp = kmalloc(sizeof(struct chdd), GFP_KERNEL);
+    chddp = kmalloc(chdd_nr_devs * sizeof(struct chdd), GFP_KERNEL);
     if (!chddp) {
+        PDEBUG("Allocate device error!");
         result = -ENOMEM;
         goto fail;
     } 
@@ -336,7 +344,8 @@ static int chdd_init(void)
     return 0;
 
 fail:
-    unregister_chrdev_region(devno, 1);
+    chdd_exit();
+    //unregister_chrdev_region(devno, 1);
     return result;
 }
 
