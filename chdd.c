@@ -28,13 +28,12 @@ MODULE_AUTHOR("Dong Hao");
 #define CHDD_QUANTUM 0x1000 /*4KB*/
 #define CHDD_QUANTUM_SET 1000
 #define MEM_CLEAR 0x01
-#define CHDD_NR_DEVS 3
+#define CHDD_NR_DEVS 1
 
-static int chdd_quantum = CHDD_QUANTUM;
-static int chdd_quantum_set = CHDD_QUANTUM_SET;
 static int chdd_major = CHDD_MAJOR;
-static int chdd_minor = 0;
 static int chdd_nr_devs = CHDD_NR_DEVS;
+static unsigned int chdd_inc = 0;
+static u8 chdd_buffer[256];
 
 /* Actually stores the data of the device */
 struct chdd_qset {
@@ -44,16 +43,7 @@ struct chdd_qset {
 };
 
 struct chdd {
-    struct chdd_qset *data;     /* Pointer to first quantum set */
-    int quantum;                /* the current quantum size */
-    int qset;                   /* the current array size */
-    unsigned long long size;    /* amount of data stored here */
-    struct semaphore sem;       /* mutual exclusion semaphore */
-    struct timer_list timer;
-    unsigned int nreaders;
-    unsigned int nwriters;
     struct cdev cdev;
-    unsigned char mem[MEM_SIZE];
 };
 
 /*device structure pointer*/
@@ -61,54 +51,16 @@ struct chdd *chddp;
 
 int chdd_release(struct inode *inode, struct file *filp)
 {
-    struct chdd *dev= filp->private_data;
-    down(&dev->sem);
-
-    if (filp->f_mode & FMODE_READ) {
-        dev->nreaders--;
-        PDEBUG("Device %d nreaders: %d.\n", DEV_NTH(dev), dev->nreaders);
-    }
-
-    if (filp->f_mode & FMODE_WRITE) {
-        if (dev->nwriters > 0) {
-            dev->nreaders--;
-            PDEBUG("Device %d nwriters: %d.\n", DEV_NTH(dev), dev->nwriters);
-        }
-    }
-
-    up(&dev->sem);
-    kfree(dev);
-    return 0;
-}
-
-int chdd_trim(struct chdd *dev) {
-    struct chdd_qset *next, *dptr;
-    int qset = dev->qset;
-    int i;
-
-    for (dptr = dev->data; dptr; dptr = next) {
-        if (dptr->data) {
-            for (i = 0; i < qset; i++) {
-                kfree(dptr->data[i]);/*clear one quantum each time */
-                dptr->data = NULL;
-            }
-            /* quantum * qset */
-        }
-        next = dptr->next;
-        kfree(dptr);
-    }
-    dev->size = 0;
-    dev->quantum = chdd_quantum; 
-    dev->qset = chdd_quantum_set;
-    dev->data = NULL;
-
+    chdd_inc--;
     return 0;
 }
 
 int chdd_open(struct inode *inode, struct file *filp)
 {
-    /*filp->private_data = dev;*/
     struct chdd *dev;
+    if (chdd_inc > 0)
+        return -ERESTARTSYS;
+    chdd_inc++;
 
     /*container_of returns the pointer of the upper structure 
     * struct demo_struct { 
@@ -126,7 +78,7 @@ int chdd_open(struct inode *inode, struct file *filp)
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
 
-    /*trim the length of the device if open was write-only */
+    /*trim the length of the device if open was write-only 
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
         chdd_trim(dev);
     }
@@ -147,70 +99,34 @@ int chdd_open(struct inode *inode, struct file *filp)
         PDEBUG("Device %d nwriters: %d.\n", DEV_NTH(dev), dev->nwriters);
         }
     }
-    up(&dev->sem);
+    */
+//    up(&dev->sem);
     return 0;
-}
-
-/* follow the list up to the right position */
-struct chdd_qset *chdd_follow(struct chdd *dev, int item) {
-    struct chdd_qset *dptr;
-    int i;
-    dptr = dev->data;
-    for (i = 1; i <= item; i++) {
-        if (!dptr) {
-            goto out;
-        }
-        dptr = dptr -> next;
-    }
-
-out:
-    return dptr;
-
 }
 
 ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
 {
-    unsigned long p = *ppos;
-    unsigned int count = size;
+    loff_t p = *ppos;
+    size_t count = size;
     ssize_t ret = 0;
-    struct chdd *dev = filp->private_data;
-    /*we let this parameter points to chdd structure when we do chdd_open*/
 
-    struct chdd_qset *dptr; /*the first linklist item*/
-    int quantum = dev->quantum;
-    int qset = dev->qset;
-    int itemsize = quantum * qset; /* bytes in this linklist */
-    int item, s_pos, q_pos, rest;
-
-    if (p >= dev->size) {
+    if (p >= 256) {
         goto out;
     }
 
-    if (p + count > dev->size) {
-        count = dev->size - p;
+    if (count > 256 - p) {
+        count = 256 - p;
     }
+    p += count ;
 
-    item = (long)*ppos / itemsize;    // how many items(qsets) we can jump. 
-    rest = (long)*ppos % itemsize;    // offset in the last item(qset). 
-    s_pos = rest / quantum; // how many quantums we can jump. 
-    q_pos = rest % quantum; // offset in the last quantum. 
 
-    dptr = chdd_follow(dev, item);
-
-    if (dptr == NULL || !dptr->data || !dptr->data[s_pos])
-        goto out;
-
-    /* read only up to the end of this quantum */
-    if (count > quantum - q_pos)
-        count = quantum - q_pos;
-
-    if (copy_to_user(buf, dev->mem + p, count)) {
+    if (copy_to_user(buf, chdd_buffer + *ppos, count)) {
         ret = -EFAULT;
         goto out;
     } else {
-        *ppos += count;
+        *ppos += p;
         ret = count;
-        printk(KERN_ALERT "read %u bytes(s) from %lu", count, p);
+        printk(KERN_ALERT "read %u bytes(s) from %lld", count, p);
     }
 out:
     return ret;
@@ -218,61 +134,27 @@ out:
 
 ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_t *ppos)
 {
-    struct chdd *dev = filp->private_data;
-    struct chdd_qset *dptr;
-    int quantum = dev->quantum, qset = dev->qset;
-    int itemsize = quantum * qset;
     loff_t p = *ppos;
     size_t count = size;
     ssize_t ret = -ENOMEM;
     
-    int item, s_pos, q_pos, rest;
-
-    if (p > dev->size) {
+    if (p >= 256) {
         goto out;
-    }
-
-    item = (long)p / itemsize;
-    rest = (long)p % itemsize;
-    s_pos = rest / quantum;
-    q_pos = rest % quantum;
-
-    dptr = chdd_follow(dev, item);
-
-    if (!dptr)
-        goto out;
-    
-    if (!dptr->data) {
-        dptr->data = kmalloc(qset * sizeof(char *), GFP_KERNEL);
-        if (!dptr->data)
-            goto out;
-
-        memset(dptr->data, 0, qset * sizeof(char *));
-    }
-    
-    if (!dptr->data[s_pos]) {
-        dptr->data[s_pos] = kmalloc(quantum, GFP_KERNEL);
-        if (!dptr->data[s_pos])
-            goto out;
-
-        memset(dptr->data[s_pos], 0, quantum);
     }
 
     /* write only up to the end of this quantum */
-    if (count > quantum - q_pos) {
-        count = quantum - q_pos;
+    if (count > 256 - p) {
+        count = 256 - p;
     }
+    p += count;
 
-    if (copy_from_user(dptr->data[s_pos]+q_pos, buf, count)) {
+    if (copy_from_user(chdd_buffer + *ppos, buf, count)) {
         ret = -EFAULT;
         goto out;
     }
     
-    *ppos += count;
+    *ppos += p;
     ret = count;
-
-    if (dev->size < *ppos)
-        dev->size = *ppos;
 
 out:
     return ret;
@@ -296,40 +178,51 @@ int chdd_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,
     return 0; 
 }
 */
-loff_t chdd_llseek(struct chdd *dev, loff_t *ppos, int whence)
+loff_t chdd_llseek(struct file *filp, loff_t off, int whence)
 {
-    loff_t ret = 0;
-    return ret;
+    loff_t pos = filp->f_pos;
+    switch (whence) {
+        case 0:
+            pos = off;
+            break;
+        case 1:
+            pos += off;
+            break;
+        case 2:
+        default:
+            return -EINVAL;
+    }
+
+    if (pos < 0 || pos > 256) {
+        return -EINVAL;
+    }   
+
+    filp->f_pos = pos;
+
+    return pos;
 }
 const struct file_operations chdd_fops = {
     .owner = THIS_MODULE,
     .read = chdd_read,
     .write = chdd_write,
-//    .ioctl = chdd_ioctl,
     .open = chdd_open,
     .release = chdd_release,
-//    .llseek = chdd_llseek,
+    .llseek = chdd_llseek,
 };
 
 static void chdd_exit(void)
 {
     dev_t devno = MKDEV(chdd_major, 0);
-    int i = 0;
 
     printk(KERN_INFO "Goodbye cruel world!\n");
 
     if (chddp) {
-        for(i = 0; i<chdd_nr_devs; i++) {
-            cdev_del(&chddp[i].cdev);
-            PDEBUG("delete device %d", i+1);
-            kfree(chddp[i].data);
-        }
-        
+        cdev_del(&chddp->cdev);
         kfree(chddp);
     }
     unregister_chrdev_region(devno, chdd_nr_devs);
 }
-
+/*
 static void chdd_setup_cdev(struct chdd *dev, int index) 
 {
     int err, devno = MKDEV(chdd_major, chdd_minor + index);
@@ -345,19 +238,15 @@ static void chdd_setup_cdev(struct chdd *dev, int index)
  //       chdd_exit();
     }
 }
-
+*/
 static int chdd_init(void)
 {
     int result;
-    int i;
     dev_t devno = MKDEV(chdd_major, 0);
 
     /*apply for the device number*/
     if (chdd_major) {
         result = register_chrdev_region(devno, chdd_nr_devs, "chdd");
-    } else {
-        result = alloc_chrdev_region(&devno, chdd_minor, chdd_nr_devs, "chdd");
-        chdd_major = MKDEV(devno, 0);
     }
 
     if (result < 0) {
@@ -377,9 +266,16 @@ static int chdd_init(void)
 
     memset(chddp, 0, chdd_nr_devs * sizeof(struct chdd));
 
-    for(i = 0; i < chdd_nr_devs; i++) {
-        chdd_setup_cdev(&chddp[i], i);
+    cdev_init(&(chddp->cdev), &chdd_fops);
+    chddp->cdev.owner = THIS_MODULE;
+    chddp->cdev.ops = &chdd_fops;// I don't know whether I need it or not.
+    result = cdev_add(&(chddp->cdev), devno, 1);
+
+    if (result) {
+        printk(KERN_ALERT "Error %d adding chdd %d\n", result, 0);
+        printk(KERN_ALERT "Failed in setup_cdev!\n");
         PDEBUG("Initialized device %d, size: %d.", i+1, chddp[i].size);
+        goto fail;
     }
     
     printk(KERN_ALERT "Hello, world!\n");
