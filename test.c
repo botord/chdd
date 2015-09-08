@@ -24,7 +24,7 @@ main()
         exit(-1);
     }
 
-    printf("open /dev/ustc successfully\n");
+    printf("open /dev/chdd successfully\n");
   
     result = write(fd, "fgj", 3);
     

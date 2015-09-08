@@ -45,6 +45,7 @@ struct chdd {
     unsigned char chdd_buffer[256];
     unsigned int size;
     unsigned int chdd_inc;
+    struct semaphore sem;
 };
 
 /*device structure pointer*/
@@ -52,10 +53,10 @@ struct chdd *chddp;
 
 int chdd_release(struct inode *inode, struct file *filp)
 {
-    struct chdd *dev;
-    dev = container_of(inode->i_cdev, struct chdd, cdev);
-    filp->private_data = dev;
+    struct chdd *dev = filp->private_data;
+    down(&dev->sem);
     dev->chdd_inc--;
+    up(&dev->sem);
     return 0;
 }
 
@@ -78,7 +79,12 @@ int chdd_open(struct inode *inode, struct file *filp)
     * */
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
+    if (down_interruptible(&dev->sem)) {
+        printk(KERN_INFO "chdd_open: unable to open this device!\n");
+        return -ERESTARTSYS;
+    }
     if (dev->chdd_inc > 0) {
+        printk(KERN_INFO "chdd_open: chdd_inc > 0, unable to open this device!\n");
         return -ERESTARTSYS;
     }
 
@@ -105,7 +111,8 @@ int chdd_open(struct inode *inode, struct file *filp)
         }
     }
     */
-//    up(&dev->sem);
+    printk(KERN_INFO "chdd_open: device opened!\n");
+    up(&dev->sem);
     return 0;
 }
 
@@ -131,7 +138,7 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     } else {
         *ppos += p;
         ret = count;
-        printk(KERN_ALERT "read %u bytes(s) from %lld", count, p);
+        printk(KERN_ALERT "read %u bytes(s) from %lld\n", count, p);
     }
 out:
     return ret;
@@ -282,6 +289,7 @@ static int chdd_init(void)
         PDEBUG("Initialized device %d, size: %d.", i+1, chddp[i].size);
         goto fail;
     }
+    sema_init(&chddp->sem, 1);
     
     printk(KERN_ALERT "Hello, world!\n");
     return 0;
