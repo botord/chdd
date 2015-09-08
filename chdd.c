@@ -32,8 +32,6 @@ MODULE_AUTHOR("Dong Hao");
 
 static int chdd_major = CHDD_MAJOR;
 static int chdd_nr_devs = CHDD_NR_DEVS;
-static unsigned int chdd_inc = 0;
-static u8 chdd_buffer[256];
 
 /* Actually stores the data of the device */
 struct chdd_qset {
@@ -44,6 +42,9 @@ struct chdd_qset {
 
 struct chdd {
     struct cdev cdev;
+    unsigned char chdd_buffer[256];
+    unsigned int size;
+    unsigned int chdd_inc;
 };
 
 /*device structure pointer*/
@@ -51,16 +52,16 @@ struct chdd *chddp;
 
 int chdd_release(struct inode *inode, struct file *filp)
 {
-    chdd_inc--;
+    struct chdd *dev;
+    dev = container_of(inode->i_cdev, struct chdd, cdev);
+    filp->private_data = dev;
+    dev->chdd_inc--;
     return 0;
 }
 
 int chdd_open(struct inode *inode, struct file *filp)
 {
     struct chdd *dev;
-    if (chdd_inc > 0)
-        return -ERESTARTSYS;
-    chdd_inc++;
 
     /*container_of returns the pointer of the upper structure 
     * struct demo_struct { 
@@ -77,7 +78,11 @@ int chdd_open(struct inode *inode, struct file *filp)
     * */
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
+    if (dev->chdd_inc > 0) {
+        return -ERESTARTSYS;
+    }
 
+    dev->chdd_inc++;
     /*trim the length of the device if open was write-only 
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
         chdd_trim(dev);
@@ -109,6 +114,7 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     loff_t p = *ppos;
     size_t count = size;
     ssize_t ret = 0;
+    struct chdd *dev = filp->private_data;
 
     if (p >= 256) {
         goto out;
@@ -117,10 +123,9 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
     if (count > 256 - p) {
         count = 256 - p;
     }
-    p += count ;
 
-
-    if (copy_to_user(buf, chdd_buffer + *ppos, count)) {
+    //if (copy_to_user(buf, chdd_buffer + *ppos, count)) {
+    if (copy_to_user(buf, dev->chdd_buffer + p, count)) {
         ret = -EFAULT;
         goto out;
     } else {
@@ -135,6 +140,7 @@ out:
 ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_t *ppos)
 {
     loff_t p = *ppos;
+    struct chdd *dev = filp->private_data;
     size_t count = size;
     ssize_t ret = -ENOMEM;
     
@@ -146,9 +152,8 @@ ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_
     if (count > 256 - p) {
         count = 256 - p;
     }
-    p += count;
 
-    if (copy_from_user(chdd_buffer + *ppos, buf, count)) {
+    if (copy_from_user(dev->chdd_buffer + p, buf, count)) {
         ret = -EFAULT;
         goto out;
     }
