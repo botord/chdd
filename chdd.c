@@ -32,6 +32,7 @@ MODULE_AUTHOR("Dong Hao");
 
 static int chdd_major = CHDD_MAJOR;
 static int chdd_nr_devs = CHDD_NR_DEVS;
+static int flag = 0;
 
 /* Actually stores the data of the device */
 struct chdd_qset {
@@ -46,6 +47,7 @@ struct chdd {
     unsigned int size;
     unsigned int chdd_inc;
     struct semaphore sem;
+    wait_queue_head_t wq;
 };
 
 /*device structure pointer*/
@@ -54,9 +56,12 @@ struct chdd *chddp;
 int chdd_release(struct inode *inode, struct file *filp)
 {
     struct chdd *dev = filp->private_data;
-    down(&dev->sem);
+    //if (down_interruptible(&dev->sem)) {
+    //    return -ERESTARTSYS;
+    //}
     dev->chdd_inc--;
-    up(&dev->sem);
+    printk(KERN_INFO "chdd_release: device closed!\n");
+    //up(&dev->sem);
     return 0;
 }
 
@@ -79,15 +84,16 @@ int chdd_open(struct inode *inode, struct file *filp)
     * */
     dev = container_of(inode->i_cdev, struct chdd, cdev);
     filp->private_data = dev;
-    if (down_interruptible(&dev->sem)) {
-        printk(KERN_INFO "chdd_open: unable to open this device!\n");
-        return -ERESTARTSYS;
-    }
+    //if (down_interruptible(&dev->sem)) {
+    //    printk(KERN_INFO "chdd_open: unable to open this device!\n");
+    //    return -ERESTARTSYS;
+    //}
+   /* 
     if (dev->chdd_inc > 0) {
         printk(KERN_INFO "chdd_open: chdd_inc > 0, unable to open this device!\n");
         return -ERESTARTSYS;
     }
-
+*/
     dev->chdd_inc++;
     /*trim the length of the device if open was write-only 
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
@@ -112,7 +118,7 @@ int chdd_open(struct inode *inode, struct file *filp)
     }
     */
     printk(KERN_INFO "chdd_open: device opened!\n");
-    up(&dev->sem);
+    //up(&dev->sem);
     return 0;
 }
 
@@ -131,6 +137,16 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
         count = 256 - p;
     }
 
+    if (wait_event_interruptible(dev->wq, flag) != 0) {
+        return -ERESTARTSYS;
+    }
+
+    flag = 0;
+
+    if (down_interruptible(&dev->sem)) {
+        return -ERESTARTSYS;
+    }
+
     //if (copy_to_user(buf, chdd_buffer + *ppos, count)) {
     if (copy_to_user(buf, dev->chdd_buffer + p, count)) {
         ret = -EFAULT;
@@ -140,7 +156,9 @@ ssize_t chdd_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos
         ret = count;
         printk(KERN_ALERT "read %u bytes(s) from %lld\n", count, p);
     }
+
 out:
+    up(&dev->sem);
     return ret;
 }
 
@@ -159,6 +177,9 @@ ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_
     if (count > 256 - p) {
         count = 256 - p;
     }
+    if (down_interruptible(&dev->sem)) {
+        return -ERESTARTSYS;
+    }
 
     if (copy_from_user(dev->chdd_buffer + p, buf, count)) {
         ret = -EFAULT;
@@ -167,8 +188,13 @@ ssize_t chdd_write(struct file *filp, const char __user *buf, size_t size, loff_
     
     *ppos += p;
     ret = count;
+    flag = 1;
+    up(&dev->sem);
+    wake_up_interruptible(&dev->wq);
+    return ret;
 
 out:
+    up(&dev->sem);
     return ret;
 }
 
@@ -290,6 +316,7 @@ static int chdd_init(void)
         goto fail;
     }
     sema_init(&chddp->sem, 1);
+    init_waitqueue_head(&chddp->wq);
     
     printk(KERN_ALERT "Hello, world!\n");
     return 0;

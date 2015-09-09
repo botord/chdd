@@ -13,14 +13,14 @@ int main()
             read(fd, &num,2);
             printf("The data is %s\n", num);
             //exit if input equals 5
-
-            if (num[1] == 0x35) {
+            if (num[0] == 0x35) {
+                printf("Get 0x35, will exit.\n");
                 close(fd);
                 break;
-			}
-		}
+            }
+        }
 	} else {
-		printf("device open failure\n");
+        printf("device open failure\n");
 	}
 
     return 0;
