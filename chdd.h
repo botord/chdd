@@ -3,25 +3,26 @@
  *
  *       Filename:  chdd.h
  *
- *    Description:  Linux Device Driver exp2.
+ *    Description:  character device driver header file.
  *
  *        Version:  1.0
  *       Revision:  none
  *       Compiler:  gcc
+ *       Modifier:  Dong Hao
  *
  * =====================================================================================
  */
 
-#ifndef  DEMO_INC
-#define  DEMO_INC
+#ifndef  CHDD_INC
+#define  CHDD_INC
 
 //#include	<linux/semaphore.h> 
 
 #undef PDEBUG                                   /*  undef it, just in case */
-#ifdef DEMO_DEBUG
+#ifdef CHDD_DEBUG
 #  ifdef __KERNEL__
      /*  This one if debugging is on, and kernel space */
-#    define PDEBUG(fmt, args...) printk( KERN_DEBUG "demo: " fmt, ## args)
+#    define PDEBUG(fmt, args...) printk( KERN_DEBUG "chdd: " fmt, ## args)
 #  else
      /*  This one for user space */
 #    define PDEBUG(fmt, args...) fprintf(stderr, fmt, ## args)
@@ -33,12 +34,12 @@
 #undef PDEBUGG
 #define PDEBUGG(fmt, args...)                   /*  nothing: it's a placeholder */
 
-#ifndef DEMO_MAJOR
-#define DEMO_MAJOR 0                            /*  dynamic major by default */
+#ifndef CHDD_MAJOR
+#define CHDD_MAJOR 0                            /*  dynamic major by default */
 #endif
 
-#ifndef DEMO_NR_DEVS
-#define DEMO_NR_DEVS 3                          /*  demo0 through demo2 */
+#ifndef CHDD_NR_DEVS
+#define CHDD_NR_DEVS 1                          /*  CHDD0 through CHDD2 */
 #endif
 
 #ifndef  BLOCK_SIZE
@@ -52,9 +53,9 @@
 #define Z_TIMEOUT 10                            /* z_timer timeout */
 #endif
 
-#define DEMO_IOC_MAGIC 'k' 
-#define DEMO_IOCSHOW _IO(DEMO_IOC_MAGIC, 0)    /* show the effective data size */
-#define DEMO_IOC_MAXNR 0                        /* max number of ioctl command */
+#define CHDD_IOC_MAGIC 'k' 
+#define CHDD_IOCSHOW _IO(CHDD_IOC_MAGIC, 0)    /* show the effective data size */
+#define CHDD_IOC_MAXNR 0                        /* max number of ioctl command */
 
 
 #endif  

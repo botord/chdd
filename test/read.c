@@ -2,10 +2,14 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <string.h>
+
 int main()
 {
 	int fd;
 	char num[2];
+
+    memset(num, 0, sizeof(num));
 
 	fd = open("/dev/chdd", O_RDWR, S_IRUSR | S_IWUSR);
 	if (fd != - 1) {

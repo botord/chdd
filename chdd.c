@@ -24,11 +24,11 @@ MODULE_AUTHOR("Dong Hao");
 
 
 #define MEM_SIZE 0x1000 /*4KB*/
-#define CHDD_MAJOR 250
+/* CHDD_MAJOR = 250 */
+/* CHDD_NR_DEVS = 1 */
 #define CHDD_QUANTUM 0x1000 /*4KB*/
 #define CHDD_QUANTUM_SET 1000
 #define MEM_CLEAR 0x01
-#define CHDD_NR_DEVS 1
 
 static int chdd_major = CHDD_MAJOR;
 static int chdd_nr_devs = CHDD_NR_DEVS;
@@ -285,12 +285,15 @@ static int chdd_init(void)
     /*apply for the device number*/
     if (chdd_major) {
         result = register_chrdev_region(devno, chdd_nr_devs, "chdd");
-    }
 
-    if (result < 0) {
-        printk(KERN_ALERT "chdd cannot get major %d\n, minor count %d"
+        if (result < 0) {
+            printk(KERN_ALERT "chdd cannot get major %d\n, minor count %d"
                             , chdd_major, chdd_nr_devs);
-        return result;
+            return result;
+        }
+    } else {
+        /* die if no major number defined. */
+        return -1;
     }
     printk(KERN_ALERT "chdd get major %d\n", chdd_major);
 
