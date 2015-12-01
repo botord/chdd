@@ -19,27 +19,28 @@
 //#include	<linux/semaphore.h> 
 
 #undef PDEBUG                                   /*  undef it, just in case */
-#ifdef CHDD_DEBUG
+#ifdef CHDD_PDEBUG 
 #  ifdef __KERNEL__
      /*  This one if debugging is on, and kernel space */
-#    define PDEBUG(fmt, args...) printk( KERN_DEBUG "chdd: " fmt, ## args)
+#    define PDEBUG(fmt, args...) printk( KERN_INFO "chdd: " fmt, ## args)
 #  else
      /*  This one for user space */
 #    define PDEBUG(fmt, args...) fprintf(stderr, fmt, ## args)
 #  endif
 #else
-#  define PDEBUG(fmt, args...)                  /*  not debugging: nothing */
+#  define PDEBUG(fmt, args...)                  /* not debugging: nothing */
 #endif
-
-#undef PDEBUGG
-#define PDEBUGG(fmt, args...)                   /*  nothing: it's a placeholder */
 
 #ifndef CHDD_MAJOR
 #define CHDD_MAJOR 0                            /*  dynamic major by default */
 #endif
 
+#ifndef CHDD_MINOR 
+#define CHDD_MINOR 0                            /*  dynamic major by default */
+#endif
+
 #ifndef CHDD_NR_DEVS
-#define CHDD_NR_DEVS 1                          /*  CHDD0 through CHDD2 */
+#define CHDD_NR_DEVS 4                          /*  CHDD0 to CHDD3 */
 #endif
 
 #ifndef  BLOCK_SIZE
