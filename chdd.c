@@ -59,8 +59,7 @@ int chdd_release(struct inode *inode, struct file *filp)
 {
     struct chdd *dev = filp->private_data;
 
-    dev->chdd_inc++;
-    PDEBUG("chdd_release: device closed! chdd_inc = %d\n", dev->chdd_inc);
+    PDEBUG("chdd_release: device closed! \n");
     up(&dev->sem);
     return 0;
 }
@@ -91,10 +90,6 @@ int chdd_open(struct inode *inode, struct file *filp)
         return -ERESTARTSYS;
     }
     */
-    if (!(dev->chdd_inc > 0)) {
-        PDEBUG("device busy! chdd_inc = %d\n", dev->chdd_inc);
-        return -EBUSY;
-    } 
     /*trim the length of the device if open was write-only
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
     chdd_trim(dev);
@@ -118,8 +113,6 @@ int chdd_open(struct inode *inode, struct file *filp)
     }
     */
     PDEBUG("device opened!\n");
-    dev->chdd_inc--;
-    //up(&dev->sem);
     return 0;
 }
 
